@@ -12,6 +12,7 @@ const DEFAULT_EMPLOYEES = [
   { id: "NW0004567", name: "Kagithala Pranathi" },
   { id: "NW2000636", name: "Pavan Kumar" },
   { id: "NW0004569", name: "Uday Raju" },
+  { id: "NW0004703", name: "Bommu Chakravarthi" },
   { id: "NW0007450", name: "Shaik Muskaan" },
 ];
 
