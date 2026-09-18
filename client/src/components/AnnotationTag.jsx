@@ -1,6 +1,7 @@
 import {
   Group,
   Rect,
+  Textbox,
   FabricText,
   Line,
   Circle,
@@ -9,8 +10,8 @@ import {
   controlsUtils,
 } from 'fabric'
 
-export const MIN_LABEL_WIDTH = 110
-export const MIN_LABEL_HEIGHT = 40
+export const MIN_LABEL_WIDTH = 80
+export const MIN_LABEL_HEIGHT = 38
 
 /**
  * Calculates the exact center of the relevant box edge based on anchor position
@@ -59,39 +60,82 @@ export function getCalloutConnectionPoint(box, anchor) {
 }
 
 /**
- * Synchronizes inner children (Rect, Name, ID) when the label group is resized
+ * Synchronizes inner children (Rect, Name, ID) when the label group is resized or updated
  * @param {Group} labelGroup
+ * @param {{ autoFitHeight?: boolean }} [options]
  */
-export function syncLabelChildren(labelGroup) {
-  const w = Math.max(MIN_LABEL_WIDTH, Math.round(labelGroup.width))
-  const h = Math.max(MIN_LABEL_HEIGHT, Math.round(labelGroup.height))
-
-  labelGroup.width = w
-  labelGroup.height = h
-
+export function syncLabelChildren(labelGroup, options = {}) {
   const rect = labelGroup._cardRect
   const nameText = labelGroup._nameText
   const idText = labelGroup._idText
 
-  if (rect) {
-    rect.set({ width: w, height: h })
+  if (!rect || !nameText || !idText) return
+
+  const { autoFitHeight = false } = options
+
+  const paddingX = 16 // 8px left and right padding
+  const paddingY = 12 // 6px top and bottom padding
+  const gap = 3 // vertical gap between name and id
+
+  // 1. Target width clamped to minimum
+  let targetW = Math.max(MIN_LABEL_WIDTH, Math.round(labelGroup.width))
+  let availableTextW = Math.max(40, targetW - paddingX)
+
+  // Configure nameText width and trigger line wrap calculation
+  nameText.set({ width: availableTextW })
+  nameText.initDimensions()
+
+  // 2. Measure required minimum width:
+  // Text must NEVER overflow outside the card, so width must accommodate the longest unbroken token and ID
+  let maxLineWidth = idText.width || 0
+  if (nameText.textLines && nameText.textLines.length > 0) {
+    for (let i = 0; i < nameText.textLines.length; i++) {
+      const lw = nameText.getLineWidth(i)
+      if (lw > maxLineWidth) {
+        maxLineWidth = lw
+      }
+    }
   }
 
-  // Name centered horizontally, placed in top half
-  if (nameText) {
-    nameText.set({
-      left: 0,
-      top: -Math.round(h * 0.18),
-    })
+  const requiredMinW = Math.max(MIN_LABEL_WIDTH, Math.ceil(maxLineWidth + paddingX))
+  if (targetW < requiredMinW) {
+    targetW = requiredMinW
+    availableTextW = Math.max(40, targetW - paddingX)
+    nameText.set({ width: availableTextW })
+    nameText.initDimensions()
   }
 
-  // ID centered horizontally, placed in bottom half
-  if (idText) {
-    idText.set({
-      left: 0,
-      top: Math.round(h * 0.22),
-    })
+  // 3. Dynamic height calculation:
+  // Card height adapts dynamically when name wraps to 2+ lines
+  const contentHeight = nameText.height + gap + idText.height
+  const minRequiredH = Math.ceil(contentHeight + paddingY)
+
+  let targetH
+  if (autoFitHeight || !labelGroup._userCustomHeight) {
+    targetH = Math.max(MIN_LABEL_HEIGHT, minRequiredH)
+  } else {
+    targetH = Math.max(minRequiredH, Math.max(MIN_LABEL_HEIGHT, Math.round(labelGroup.height)))
   }
+
+  // 4. Update group and rect dimensions
+  labelGroup.set({ width: targetW, height: targetH })
+  rect.set({ width: targetW, height: targetH })
+
+  // 5. Center content block horizontally and vertically inside the group
+  const nameCenterY = -contentHeight / 2 + nameText.height / 2
+  const idCenterY = -contentHeight / 2 + nameText.height + gap + idText.height / 2
+
+  nameText.set({
+    left: 0,
+    top: Math.round(nameCenterY),
+  })
+
+  idText.set({
+    left: 0,
+    top: Math.round(idCenterY),
+  })
+
+  labelGroup.setCoords()
 }
 
 /**
@@ -103,10 +147,7 @@ function createLabelControls(onResize) {
   const handleWidthChange = controlsUtils.wrapWithFixedAnchor((eventData, transform, x, y) => {
     const changed = controlsUtils.changeObjectWidth(eventData, transform, x, y)
     if (changed) {
-      if (transform.target.width < MIN_LABEL_WIDTH) {
-        transform.target.width = MIN_LABEL_WIDTH
-      }
-      syncLabelChildren(transform.target)
+      syncLabelChildren(transform.target, { autoFitHeight: true })
       onResize?.()
     }
     return changed
@@ -115,10 +156,8 @@ function createLabelControls(onResize) {
   const handleHeightChange = controlsUtils.wrapWithFixedAnchor((eventData, transform, x, y) => {
     const changed = controlsUtils.changeObjectHeight(eventData, transform, x, y)
     if (changed) {
-      if (transform.target.height < MIN_LABEL_HEIGHT) {
-        transform.target.height = MIN_LABEL_HEIGHT
-      }
-      syncLabelChildren(transform.target)
+      transform.target._userCustomHeight = true
+      syncLabelChildren(transform.target, { autoFitHeight: false })
       onResize?.()
     }
     return changed
@@ -128,13 +167,10 @@ function createLabelControls(onResize) {
     const wChanged = controlsUtils.changeObjectWidth(eventData, transform, x, y)
     const hChanged = controlsUtils.changeObjectHeight(eventData, transform, x, y)
     if (wChanged || hChanged) {
-      if (transform.target.width < MIN_LABEL_WIDTH) {
-        transform.target.width = MIN_LABEL_WIDTH
+      if (hChanged) {
+        transform.target._userCustomHeight = true
       }
-      if (transform.target.height < MIN_LABEL_HEIGHT) {
-        transform.target.height = MIN_LABEL_HEIGHT
-      }
-      syncLabelChildren(transform.target)
+      syncLabelChildren(transform.target, { autoFitHeight: false })
       onResize?.()
     }
     return wChanged || hChanged
@@ -240,8 +276,8 @@ export function createCalloutAnnotation(canvas, employee, options = {}, callback
 
   // Compute default label size and position
   const nameLen = (employee.name || '').length
-  const defaultWidth = Math.max(140, Math.min(260, nameLen * 9 + 36))
-  const defaultHeight = 48
+  const defaultWidth = Math.max(120, Math.min(240, Math.round(nameLen * 7.5 + 32)))
+  const defaultHeight = 40
 
   const labelX = options.label?.x ?? options.left ?? 100
   const labelY = options.label?.y ?? options.top ?? 100
@@ -274,30 +310,34 @@ export function createCalloutAnnotation(canvas, employee, options = {}, callback
     }),
   })
 
-  // 2. Employee Name (bold, centered, dark)
-  const nameText = new FabricText((employee.name || '').toUpperCase(), {
-    fontSize: 13,
+  // 2. Employee Name (compact 11.5px bold, centered, dark, multi-line wrapping Textbox)
+  const nameText = new Textbox((employee.name || '').toUpperCase(), {
+    fontSize: 11.5,
     fontWeight: '700',
+    lineHeight: 1.15,
     fill: '#0f172a',
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     originX: 'center',
     originY: 'center',
-    top: -Math.round(height * 0.18),
-    left: 0,
     textAlign: 'center',
+    width: Math.max(40, width - 16),
+    splitByGrapheme: false,
+    editable: false,
+    selectable: false,
+    evented: false,
   })
 
-  // 3. Employee ID (monospace, centered, subtle)
+  // 3. Employee ID (compact 9.5px monospace, centered, subtle)
   const idText = new FabricText(employee.id || '', {
-    fontSize: 10.5,
+    fontSize: 9.5,
     fontWeight: '600',
     fill: '#475569',
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     originX: 'center',
     originY: 'center',
-    top: Math.round(height * 0.22),
-    left: 0,
     textAlign: 'center',
+    selectable: false,
+    evented: false,
   })
 
   // Group white card + text into one resizable unit
@@ -310,6 +350,7 @@ export function createCalloutAnnotation(canvas, employee, options = {}, callback
     originY: 'top',
     hasRotatingPoint: false,
     lockRotation: true,
+    lockScalingFlip: true,
     transparentCorners: false,
     cornerColor: '#2563eb',
     cornerStrokeColor: '#ffffff',
@@ -325,6 +366,13 @@ export function createCalloutAnnotation(canvas, employee, options = {}, callback
   labelGroup._idText = idText
   labelGroup._prevLeft = labelX
   labelGroup._prevTop = labelY
+
+  if (options.label?.height) {
+    labelGroup._userCustomHeight = true
+  }
+
+  // Initial layout synchronization to ensure correct padding & wrapping
+  syncLabelChildren(labelGroup, { autoFitHeight: !options.label?.height })
 
   // 4. Anchor Handle (draggable circular endpoint on the employee's face)
   const anchorHandle = new Circle({

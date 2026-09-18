@@ -6,6 +6,8 @@ import {
   removeCalloutFromCanvas,
   bringCalloutToFront,
   getCalloutSnapshot,
+  syncLabelChildren,
+  updateCalloutPointer,
 } from './AnnotationTag'
 
 export const ImageCanvas = forwardRef(function ImageCanvas(
@@ -268,8 +270,8 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
         // Placement near center of current view
         const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0]
         const nameLen = (employee.name || '').length
-        const cardW = Math.max(140, Math.min(260, nameLen * 9 + 36))
-        const cardH = 48
+        const cardW = Math.max(120, Math.min(240, Math.round(nameLen * 7.5 + 32)))
+        const cardH = 40
 
         const centerX = (-vpt[4] + canvas.width / 2) / vpt[0] - cardW / 2
         const centerY = (-vpt[5] + canvas.height / 2) / vpt[3] - cardH / 2 - 40
@@ -378,8 +380,11 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
             calloutsMapRef.current.delete(oldId)
             calloutsMapRef.current.set(newEmpData.id, callout)
           }
+          syncLabelChildren(callout.labelGroup, { autoFitHeight: true })
+          updateCalloutPointer(callout)
           canvas.requestRenderAll()
           syncPlacedEmployees()
+          onSaveStateRef.current?.()
         }
       },
 
