@@ -25,7 +25,7 @@ export function Toolbar({
   onFitImage,
   onClearAll,
   onDeleteSelected,
-  hasSelection,
+  selectedEmployeeName,
   hasImage,
   hasAnnotations,
   onPreviewExport,
@@ -46,7 +46,7 @@ export function Toolbar({
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
           <Undo2 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Undo</span>
@@ -56,7 +56,7 @@ export function Toolbar({
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
           <Redo2 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Redo</span>
@@ -64,22 +64,27 @@ export function Toolbar({
 
         <div className="h-4 w-px bg-slate-800 mx-1" />
 
-        {hasSelection && (
-          <button
-            onClick={onDeleteSelected}
-            title="Delete Selected Tag (Delete / Backspace)"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Delete Selected</span>
-          </button>
+        {/* Selected Employee Name with Delete Icon */}
+        {selectedEmployeeName && (
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-800/90 border border-slate-700 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <span className="font-semibold text-blue-400 max-w-[160px] truncate">
+              {selectedEmployeeName}
+            </span>
+            <button
+              onClick={onDeleteSelected}
+              title={`Remove ${selectedEmployeeName}'s annotation (Delete / Backspace)`}
+              className="p-1 rounded text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         <button
           onClick={() => setClearConfirmOpen(true)}
           disabled={!hasAnnotations}
           title="Clear all employee tags from canvas"
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-rose-400 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-rose-400 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
           <Trash className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Clear All</span>

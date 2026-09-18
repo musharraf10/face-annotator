@@ -9,17 +9,6 @@ import {
   controlsUtils,
 } from 'fabric'
 
-export const POINTER_DIRECTIONS = [
-  { id: 'down', label: '↓ Below Center', icon: '↓' },
-  { id: 'bottom-right', label: '↘ Bottom Right', icon: '↘' },
-  { id: 'bottom-left', label: '↙ Bottom Left', icon: '↙' },
-  { id: 'right', label: '→ Right Center', icon: '→' },
-  { id: 'left', label: '← Left Center', icon: '←' },
-  { id: 'top', label: '↑ Above Center', icon: '↑' },
-  { id: 'top-right', label: '↗ Top Right', icon: '↗' },
-  { id: 'top-left', label: '↖ Top Left', icon: '↖' },
-]
-
 export const MIN_LABEL_WIDTH = 110
 export const MIN_LABEL_HEIGHT = 40
 
@@ -457,67 +446,6 @@ export function createCalloutAnnotation(canvas, employee, options = {}, callback
   canvas.add(labelGroup)
 
   return callout
-}
-
-/**
- * Adjusts the anchor handle to a preset relative position (Up, Down, Left, Right, Diagonals)
- * @param {object} callout
- * @param {string} directionId
- * @param {import('fabric').Canvas} canvas
- */
-export function setCalloutPresetDirection(callout, directionId, canvas) {
-  if (!callout || !canvas) return
-
-  const { labelGroup, anchorHandle } = callout
-  const w = labelGroup.width
-  const h = labelGroup.height
-  const centerX = labelGroup.left + w / 2
-  const centerY = labelGroup.top + h / 2
-  const distance = 70
-  let newAnchorX
-  let newAnchorY
-
-  switch (directionId) {
-    case 'top':
-      newAnchorX = centerX
-      newAnchorY = labelGroup.top - distance
-      break
-    case 'top-right':
-      newAnchorX = labelGroup.left + w + distance * 0.7
-      newAnchorY = labelGroup.top - distance * 0.7
-      break
-    case 'top-left':
-      newAnchorX = labelGroup.left - distance * 0.7
-      newAnchorY = labelGroup.top - distance * 0.7
-      break
-    case 'right':
-      newAnchorX = labelGroup.left + w + distance
-      newAnchorY = centerY
-      break
-    case 'left':
-      newAnchorX = labelGroup.left - distance
-      newAnchorY = centerY
-      break
-    case 'bottom-left':
-      newAnchorX = labelGroup.left - distance * 0.7
-      newAnchorY = labelGroup.top + h + distance * 0.7
-      break
-    case 'bottom-right':
-      newAnchorX = labelGroup.left + w + distance * 0.7
-      newAnchorY = labelGroup.top + h + distance * 0.7
-      break
-    case 'down':
-    default:
-      newAnchorX = centerX
-      newAnchorY = labelGroup.top + h + distance
-      break
-  }
-
-  anchorHandle.set({ left: newAnchorX, top: newAnchorY })
-  anchorHandle.setCoords()
-
-  updateCalloutPointer(callout)
-  canvas.requestRenderAll()
 }
 
 /**

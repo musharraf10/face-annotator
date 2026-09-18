@@ -292,7 +292,13 @@ export function PresenceEditor() {
 
   // Delete selected tag
   const handleDeleteSelected = () => {
-    if (canvasRef.current) {
+    if (selectedEmployeeId && canvasRef.current) {
+      const empName = employees.find((e) => e.id === selectedEmployeeId)?.name
+      canvasRef.current.removeEmployee?.(selectedEmployeeId)
+      setSelectedEmployeeId(null)
+      recordHistory()
+      showToast(`Removed annotation for ${empName || 'employee'}.`, 'info')
+    } else if (canvasRef.current) {
       canvasRef.current.deleteSelected()
       recordHistory()
     }
@@ -531,7 +537,11 @@ export function PresenceEditor() {
         onFitImage={() => canvasRef.current?.fitImage()}
         onClearAll={handleClearAllAnnotations}
         onDeleteSelected={handleDeleteSelected}
-        hasSelection={Boolean(selectedEmployeeId)}
+        selectedEmployeeName={
+          selectedEmployeeId && placedEmployeeIds.includes(selectedEmployeeId)
+            ? employees.find((e) => e.id === selectedEmployeeId)?.name
+            : null
+        }
         hasImage={Boolean(imageDataUrl)}
         hasAnnotations={placedEmployeeIds.length > 0}
         onPreviewExport={handleOpenPreview}

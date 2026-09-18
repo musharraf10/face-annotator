@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { Canvas, FabricImage } from 'fabric'
-import { UploadCloud, Image as ImageIcon, Trash2, Compass } from 'lucide-react'
+import { UploadCloud, Image as ImageIcon } from 'lucide-react'
 import {
   createCalloutAnnotation,
-  setCalloutPresetDirection,
   removeCalloutFromCanvas,
   bringCalloutToFront,
   getCalloutSnapshot,
-  POINTER_DIRECTIONS,
 } from './AnnotationTag'
 
 export const ImageCanvas = forwardRef(function ImageCanvas(
@@ -26,7 +24,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
   const fabricCanvasRef = useRef(null)
   const bgImageRef = useRef(null)
 
-  const [activeAnnotation, setActiveAnnotation] = useState(null)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [placedCount, setPlacedCount] = useState(0)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
@@ -264,7 +261,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
           bringCalloutToFront(existing, canvas)
           canvas.setActiveObject(existing.labelGroup)
           canvas.requestRenderAll()
-          setActiveAnnotation(existing)
           onSelectEmployeeRef.current?.(employee.id)
           return
         }
@@ -310,7 +306,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
         canvas.setActiveObject(callout.labelGroup)
         canvas.requestRenderAll()
 
-        setActiveAnnotation(callout)
         syncPlacedEmployees()
         onSelectEmployeeRef.current?.(employee.id)
         onSaveStateRef.current?.()
@@ -328,7 +323,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
           }
           canvas.discardActiveObject()
           canvas.requestRenderAll()
-          setActiveAnnotation(null)
           syncPlacedEmployees()
           onSelectEmployeeRef.current?.(null)
           onSaveStateRef.current?.()
@@ -344,7 +338,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
         calloutsMapRef.current.clear()
         canvas.discardActiveObject()
         canvas.requestRenderAll()
-        setActiveAnnotation(null)
         syncPlacedEmployees()
         onSelectEmployeeRef.current?.(null)
         onSaveStateRef.current?.()
@@ -362,7 +355,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
         remaining.forEach((o) => canvas.remove(o))
         canvas.discardActiveObject()
         canvas.requestRenderAll()
-        setActiveAnnotation(null)
         syncPlacedEmployees()
         onSelectEmployeeRef.current?.(null)
         onSaveStateRef.current?.()
@@ -454,17 +446,14 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
       if (selected && selected.isAnnotation && selected.employeeId) {
         const callout = calloutsMapRef.current.get(selected.employeeId)
         if (callout) {
-          setActiveAnnotation(callout)
           onSelectEmployeeRef.current?.(selected.employeeId)
           return
         }
       }
-      setActiveAnnotation(null)
       onSelectEmployeeRef.current?.(null)
     }
 
     const handleDeselection = () => {
-      setActiveAnnotation(null)
       onSelectEmployeeRef.current?.(null)
     }
 
@@ -531,7 +520,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
       bringCalloutToFront(callout, canvas)
       canvas.setActiveObject(callout.labelGroup)
       canvas.requestRenderAll()
-      setActiveAnnotation(callout)
     }
   }, [selectedEmployeeId])
 
@@ -557,7 +545,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
           }
           canvas.discardActiveObject()
           canvas.requestRenderAll()
-          setActiveAnnotation(null)
           syncPlacedEmployees()
           if (onSelectEmployee) onSelectEmployee(null)
           if (onSaveState) onSaveState()
@@ -565,7 +552,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
       } else if (e.key === 'Escape') {
         canvas.discardActiveObject()
         canvas.requestRenderAll()
-        setActiveAnnotation(null)
         if (onSelectEmployee) onSelectEmployee(null)
       }
     }
@@ -622,26 +608,6 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
     reader.readAsDataURL(file)
   }
 
-  // Pointer direction change from active annotation pill
-  const handleDirectionChange = (directionId) => {
-    if (!activeAnnotation || !fabricCanvasRef.current) return
-    setCalloutPresetDirection(activeAnnotation, directionId, fabricCanvasRef.current)
-    if (onSaveState) onSaveState()
-  }
-
-  const handleDeleteActive = () => {
-    const canvas = fabricCanvasRef.current
-    if (!canvas || !activeAnnotation) return
-    removeCalloutFromCanvas(activeAnnotation, canvas)
-    calloutsMapRef.current.delete(activeAnnotation.employeeId)
-    canvas.discardActiveObject()
-    canvas.requestRenderAll()
-    setActiveAnnotation(null)
-    syncPlacedEmployees()
-    if (onSelectEmployee) onSelectEmployee(null)
-    if (onSaveState) onSaveState()
-  }
-
   return (
     <div
       ref={containerRef}
@@ -652,43 +618,8 @@ export const ImageCanvas = forwardRef(function ImageCanvas(
         isDraggingOver ? 'bg-slate-900 ring-2 ring-blue-500/50' : ''
       }`}
     >
-      {/* Floating Quick Pointer & Action Bar when an annotation is selected */}
-      {activeAnnotation && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/95 border border-slate-700 text-slate-100 shadow-xl backdrop-blur-md z-40 animate-in fade-in zoom-in-95 duration-150">
-          <span className="text-[11px] font-semibold text-blue-400 mr-1 border-r border-slate-700 pr-2">
-            {activeAnnotation.employeeName}
-          </span>
-
-          <span className="text-[10px] text-slate-400 flex items-center gap-1 mr-1">
-            <Compass className="w-3 h-3 text-slate-400" />
-            Preset:
-          </span>
-
-          {POINTER_DIRECTIONS.map((dir) => (
-            <button
-              key={dir.id}
-              onClick={() => handleDirectionChange(dir.id)}
-              title={`Preset: ${dir.label}`}
-              className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors hover:bg-slate-800 text-slate-300"
-            >
-              {dir.icon}
-            </button>
-          ))}
-
-          <div className="h-4 w-px bg-slate-700 mx-1" />
-
-          <button
-            onClick={handleDeleteActive}
-            title="Delete this annotation (Backspace / Delete)"
-            className="p-1 rounded text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Floating helper when image uploaded but no annotations placed */}
-      {imageDataUrl && placedCount === 0 && !activeAnnotation && (
+      {imageDataUrl && placedCount === 0 && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-700/80 text-slate-300 text-xs shadow-lg backdrop-blur-sm pointer-events-none animate-in fade-in slide-in-from-top-2 z-20">
           Click an employee on the left to add their label
         </div>
