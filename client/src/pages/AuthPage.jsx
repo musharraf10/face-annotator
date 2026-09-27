@@ -257,22 +257,6 @@ export function AuthPage({ onLoginSuccess }) {
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="px-6 py-3 border-t border-slate-900 bg-slate-950/80 text-center text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2 z-10">
-        <div>
-          Professional Presence Image Annotator &copy; 2026
-        </div>
-        <div className="flex items-center gap-1">
-          <span>Developed with passion by</span>
-          <button
-            onClick={() => setCreditsOpen(true)}
-            className="text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2"
-          >
-            Shaik Musharaf (NW0007365)
-          </button>
-        </div>
-      </footer>
-
       <CreditsModal isOpen={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </div>
   );
