@@ -16,7 +16,7 @@ export function EmployeeForm({
   if (!isOpen) return null
 
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
 
@@ -32,18 +32,24 @@ export function EmployeeForm({
       return
     }
 
-    const result = onSave({
-      oldId: initialData?.id,
-      name: trimmedName,
-      id: trimmedId,
-    })
+    try {
+      // 1. ADD 'await' here so it waits for the API response
+      const result = await onSave({
+        oldId: initialData?.id,
+        name: trimmedName,
+        id: trimmedId,
+      })
 
-    if (result && !result.success) {
-      setError(result.error || 'Failed to save employee.')
-      return
+      // 2. CHECK explicitly for false (prevents pending promise bug)
+      if (result && result.success === false) {
+        setError(result.error || 'Failed to save employee.')
+        return
+      }
+
+      onClose()
+    } catch (err) {
+      setError(err?.message || 'Failed to save employee.')
     }
-
-    onClose()
   }
 
   return (

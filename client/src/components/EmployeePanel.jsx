@@ -162,13 +162,16 @@ export function EmployeePanel({
               </p>
             ) : (
               <div>
-                <p className="text-xs text-slate-400 mb-3">No employees added yet.</p>
+                <p className="text-xs font-medium text-slate-300 mb-1">No employees in your profile</p>
+                <p className="text-[11px] text-slate-400 mb-3 max-w-[200px] mx-auto">
+                  Your roster starts empty. Add employees according to your team list.
+                </p>
                 <button
                   onClick={handleOpenAdd}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white transition-all shadow-md"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all shadow-md shadow-blue-900/30 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Add Employee
+                  Add First Employee
                 </button>
               </div>
             )}

@@ -6,6 +6,7 @@ import {
   Layers,
   ChevronDown,
   RotateCcw,
+  Award,
 } from 'lucide-react'
 
 import { useEmployees } from '../hooks/useEmployees'
@@ -15,6 +16,8 @@ import { Toolbar } from '../components/Toolbar'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { PreviewModal } from '../components/PreviewModal'
 import { Toast } from '../components/Toast'
+import { UserProfileMenu } from '../components/UserProfileMenu'
+import { CreditsModal } from '../components/CreditsModal'
 import {
   getActiveSessionDate,
   setActiveSessionDate,
@@ -26,9 +29,12 @@ import {
   saveImageToIndexedDB,
   getImageFromIndexedDB,
 } from '../utils/storage'
+import { apiGetSessions, apiSaveSession } from '../utils/api'
 import { exportCanvasAsPNG, generatePreviewDataUrl } from '../utils/exportImage'
 
-export function PresenceEditor() {
+export function PresenceEditor({ user, onLogout }) {
+  const userId = user?.id || null;
+
   const {
     employees,
     filteredEmployees,
@@ -37,15 +43,17 @@ export function PresenceEditor() {
     addEmployee,
     updateEmployee,
     deleteEmployee,
-  } = useEmployees()
+    syncStatus,
+  } = useEmployees(user)
 
   const canvasRef = useRef(null)
   const fileInputRef = useRef(null)
 
   // Session State
-  const [sessionDate, setSessionDate] = useState(() => getActiveSessionDate())
-  const [sessionsList, setSessionsList] = useState(() => getAllSessions())
+  const [sessionDate, setSessionDate] = useState(() => getActiveSessionDate(userId))
+  const [sessionsList, setSessionsList] = useState(() => getAllSessions(userId))
   const [showSessionsDropdown, setShowSessionsDropdown] = useState(false)
+  const [creditsOpen, setCreditsOpen] = useState(false)
 
   // Canvas & Annotation State
   const [imageDataUrl, setImageDataUrl] = useState(null)
@@ -73,14 +81,26 @@ export function PresenceEditor() {
   // Track whether initial load has completed to prevent saving empty state over stored session
   const isSessionLoadedRef = useRef(false)
 
+  // Synchronize past sessions from backend if available
+  useEffect(() => {
+    if (!userId) return
+    apiGetSessions()
+      .then((res) => {
+        if (res.success && res.sessions) {
+          setSessionsList((prev) => ({ ...prev, ...res.sessions }))
+        }
+      })
+      .catch(() => {})
+  }, [userId])
+
   // Load session from storage / IndexedDB on mount or sessionDate change
   useEffect(() => {
     let isMounted = true
     isSessionLoadedRef.current = false
 
     async function loadCurrentSession() {
-      const saved = getSession(sessionDate)
-      const cachedImg = await getImageFromIndexedDB(`img_${sessionDate}`)
+      const saved = getSession(userId, sessionDate)
+      const cachedImg = await getImageFromIndexedDB(`img_${userId || 'guest'}_${sessionDate}`)
 
       if (!isMounted) return
 
@@ -109,18 +129,17 @@ export function PresenceEditor() {
           }
         }, 120)
       }
-
     }
 
     loadCurrentSession()
-    setActiveSessionDate(sessionDate)
+    setActiveSessionDate(userId, sessionDate)
 
     return () => {
       isMounted = false
     }
-  }, [sessionDate])
+  }, [sessionDate, userId])
 
-  // Save current work to session
+  // Save current work to session (Fast browser storage + MongoDB background sync)
   const saveCurrentSessionWork = useCallback(() => {
     if (!isSessionLoadedRef.current || !canvasRef.current) return
     setSaveStatus('saving')
@@ -139,14 +158,18 @@ export function PresenceEditor() {
       },
     }
 
-    saveSession(sessionDate, sessionData)
-    setSessionsList(getAllSessions())
+    saveSession(userId, sessionDate, sessionData)
+    setSessionsList(getAllSessions(userId))
+
+    // Background MongoDB sync
+    if (userId) {
+      apiSaveSession(sessionDate, sessionData).catch(() => {})
+    }
 
     setTimeout(() => {
       setSaveStatus('saved')
     }, 400)
-  }, [sessionDate, imageFileName, imageDataUrl])
-
+  }, [userId, sessionDate, imageFileName, imageDataUrl])
 
   // Record history snapshot for Undo / Redo
   const recordHistory = useCallback(() => {
@@ -165,28 +188,36 @@ export function PresenceEditor() {
   // Undo
   const handleUndo = useCallback(() => {
     if (historyIndex <= 0 || !canvasRef.current) return
-
     isUndoingRedoingRef.current = true
-    const targetSnapshot = history[historyIndex - 1]
+
+    const targetIndex = historyIndex - 1
+    const targetSnapshot = history[targetIndex] || []
+
     canvasRef.current.restoreSnapshot(targetSnapshot)
-    setHistoryIndex((prev) => prev - 1)
-    saveCurrentSessionWork()
+    setPlacedEmployeeIds(targetSnapshot.map((s) => s.employeeId))
+    setHistoryIndex(targetIndex)
+
     setTimeout(() => {
       isUndoingRedoingRef.current = false
+      saveCurrentSessionWork()
     }, 50)
   }, [historyIndex, history, saveCurrentSessionWork])
 
   // Redo
   const handleRedo = useCallback(() => {
     if (historyIndex >= history.length - 1 || !canvasRef.current) return
-
     isUndoingRedoingRef.current = true
-    const targetSnapshot = history[historyIndex + 1]
+
+    const targetIndex = historyIndex + 1
+    const targetSnapshot = history[targetIndex] || []
+
     canvasRef.current.restoreSnapshot(targetSnapshot)
-    setHistoryIndex((prev) => prev + 1)
-    saveCurrentSessionWork()
+    setPlacedEmployeeIds(targetSnapshot.map((s) => s.employeeId))
+    setHistoryIndex(targetIndex)
+
     setTimeout(() => {
       isUndoingRedoingRef.current = false
+      saveCurrentSessionWork()
     }, 50)
   }, [historyIndex, history, saveCurrentSessionWork])
 
@@ -219,7 +250,7 @@ export function PresenceEditor() {
   const handleUploadImage = async (dataUrl, fileName) => {
     setImageDataUrl(dataUrl)
     setImageFileName(fileName)
-    await saveImageToIndexedDB(`img_${sessionDate}`, dataUrl)
+    await saveImageToIndexedDB(`img_${userId || 'guest'}_${sessionDate}`, dataUrl)
     showToast('Group photo loaded successfully!', 'success')
 
     const snapshot = canvasRef.current?.getSnapshot() || []
@@ -233,10 +264,12 @@ export function PresenceEditor() {
         hasImage: true,
       },
     }
-    saveSession(sessionDate, sessionData)
-    setSessionsList(getAllSessions())
+    saveSession(userId, sessionDate, sessionData)
+    setSessionsList(getAllSessions(userId))
+    if (userId) {
+      apiSaveSession(sessionDate, sessionData).catch(() => {})
+    }
   }
-
 
   // Handle employee click in sidebar (add tag or select existing)
   const handleEmployeeClick = (employee) => {
@@ -252,50 +285,51 @@ export function PresenceEditor() {
   }
 
   // Employee master data CRUD wrappers
-  const handleAddEmployee = (empData) => {
-    const res = addEmployee(empData)
+  const handleAddEmployee = async (empData) => {
+    const res = await addEmployee(empData)
     if (res.success) {
       showToast(`Employee "${res.employee.name}" added.`, 'success')
     }
     return res
   }
 
-  const handleUpdateEmployee = (oldId, empData) => {
-    const res = updateEmployee(oldId, empData)
+  const handleUpdateEmployee = async (oldId, empData) => {
+    const res = await updateEmployee(oldId, empData)
     if (res.success) {
-      showToast('Employee updated successfully.', 'success')
-      canvasRef.current?.updateEmployeeLabel?.(oldId, res.employee)
-      saveCurrentSessionWork()
+      showToast(`Employee "${empData.name}" updated.`, 'success')
+      if (canvasRef.current) {
+        canvasRef.current.updateEmployeeTag(oldId, empData)
+        recordHistory()
+      }
     }
     return res
   }
 
-  const handleDeleteEmployee = (id) => {
-    deleteEmployee(id)
-    // Remove if placed on canvas
+  const handleDeleteEmployee = async (id) => {
+    await deleteEmployee(id)
     if (canvasRef.current) {
-      canvasRef.current.removeEmployee?.(id)
+      canvasRef.current.removeEmployeeTag(id)
       recordHistory()
     }
-    showToast('Employee deleted.', 'info')
+    showToast('Employee deleted from master list.', 'info')
   }
 
-  // Clear all annotations
+  // Clear all annotations from canvas
   const handleClearAllAnnotations = () => {
     if (canvasRef.current) {
       canvasRef.current.clearAllAnnotations()
       setPlacedEmployeeIds([])
+      setSelectedEmployeeId(null)
       recordHistory()
-      showToast('All employee tags cleared.', 'info')
+      showToast('All annotations cleared for today.', 'info')
     }
   }
 
-  // Delete selected tag
+  // Delete selected tag from canvas
   const handleDeleteSelected = () => {
     if (selectedEmployeeId && canvasRef.current) {
       const empName = employees.find((e) => e.id === selectedEmployeeId)?.name
-      canvasRef.current.removeEmployee?.(selectedEmployeeId)
-      setSelectedEmployeeId(null)
+      canvasRef.current.removeEmployeeTag(selectedEmployeeId)
       recordHistory()
       showToast(`Removed annotation for ${empName || 'employee'}.`, 'info')
     } else if (canvasRef.current) {
@@ -308,7 +342,7 @@ export function PresenceEditor() {
   const handleStartNewSession = () => {
     const today = getTodayDateString()
     setSessionDate(today)
-    setActiveSessionDate(today)
+    setActiveSessionDate(userId, today)
     setImageDataUrl(null)
     setImageFileName(null)
     setPlacedEmployeeIds([])
@@ -325,7 +359,7 @@ export function PresenceEditor() {
   // Switch to a past session
   const handleSwitchSession = (dateStr) => {
     setSessionDate(dateStr)
-    setActiveSessionDate(dateStr)
+    setActiveSessionDate(userId, dateStr)
     setShowSessionsDropdown(false)
     showToast(`Loaded session: ${formatDisplayDate(dateStr)}`, 'info')
   }
@@ -364,7 +398,7 @@ export function PresenceEditor() {
       {/* Top Navigation / Header */}
       <header className="h-13 border-b border-slate-800 bg-slate-900/90 px-4 flex items-center justify-between shrink-0 z-20">
         {/* Brand & Date */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-md shadow-blue-600/30">
               <Layers className="w-4 h-4" />
@@ -385,7 +419,7 @@ export function PresenceEditor() {
           <div className="relative">
             <button
               onClick={() => setShowSessionsDropdown((prev) => !prev)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 text-xs font-medium text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
             >
               <Calendar className="w-3.5 h-3.5 text-blue-400" />
               <span>{formatDisplayDate(sessionDate)}</span>
@@ -404,7 +438,7 @@ export function PresenceEditor() {
                       setShowSessionsDropdown(false)
                       setNewSessionConfirmOpen(true)
                     }}
-                    className="text-[11px] text-blue-400 hover:text-blue-300 font-medium"
+                    className="text-[11px] text-blue-400 hover:text-blue-300 font-medium cursor-pointer"
                   >
                     + New
                   </button>
@@ -423,7 +457,7 @@ export function PresenceEditor() {
                         <button
                           key={sess.date}
                           onClick={() => handleSwitchSession(sess.date)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors cursor-pointer ${
                             isCurrent
                               ? 'bg-blue-600/15 text-blue-300 font-medium'
                               : 'text-slate-300 hover:bg-slate-800'
@@ -443,13 +477,24 @@ export function PresenceEditor() {
           </div>
         </div>
 
-        {/* Right Header Actions: Upload & Export */}
+        {/* Right Header Actions */}
         <div className="flex items-center gap-2">
+          {/* Developer Credit Chip in Header */}
+          <button
+            onClick={() => setCreditsOpen(true)}
+            title="Project Developer: Shaik Musharaf (NW0007365)"
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-700/70 bg-slate-800/60 hover:bg-slate-800 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
+          >
+            <Award className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[11px] text-slate-400">Dev:</span>
+            <span className="text-blue-400 font-semibold text-[11px]">Shaik Musharaf (NW0007365)</span>
+          </button>
+
           {/* New Session Button */}
           <button
             onClick={() => setNewSessionConfirmOpen(true)}
             title="Start a new daily session"
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors"
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>New Session</span>
@@ -475,7 +520,7 @@ export function PresenceEditor() {
           <button
             onClick={() => fileInputRef.current?.click()}
             title="Upload group photo"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-750 text-xs font-medium text-slate-200 transition-colors shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-750 text-xs font-medium text-slate-200 transition-colors shadow-xs cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5 text-slate-400" />
             <span className="hidden sm:inline">Upload Image</span>
@@ -487,11 +532,20 @@ export function PresenceEditor() {
             onClick={handleExportPNG}
             disabled={!imageDataUrl}
             title="Export final annotated image as PNG"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-900/30 disabled:opacity-40 disabled:hover:bg-blue-600 transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-900/30 disabled:opacity-40 disabled:hover:bg-blue-600 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export PNG</span>
           </button>
+
+          <div className="h-4 w-px bg-slate-800 mx-0.5" />
+
+          {/* User Profile Menu */}
+          <UserProfileMenu
+            user={user}
+            onLogout={onLogout}
+            syncStatus={syncStatus}
+          />
         </div>
       </header>
 
@@ -572,6 +626,9 @@ export function PresenceEditor() {
 
       {/* Snappy Notification Toast */}
       <Toast toast={toast} onClose={() => setToast(null)} />
+
+      {/* Developer Credits Modal */}
+      <CreditsModal isOpen={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </div>
   )
 }

@@ -1,57 +1,133 @@
-// Storage utilities for employee master data, daily sessions, and image caching
+// Storage utilities for personalized profiles, 14-day auth persistence, fast browser caching, and IndexedDB
 
-const EMPLOYEES_KEY = "pp_employees_v1";
-const SESSIONS_KEY = "pp_sessions_v1";
-const ACTIVE_SESSION_DATE_KEY = "pp_active_session_date_v1";
+const AUTH_TOKEN_KEY = "pp_auth_token_v2";
+const AUTH_USER_KEY = "pp_auth_user_v2";
+const AUTH_EXPIRES_AT_KEY = "pp_auth_expires_at_v2";
 
-const DEFAULT_EMPLOYEES = [
-  { id: "NW0007365", name: "Shaik Musharaf" },
-  { id: "NW2000308", name: "Neeraj Kumar" },
-  { id: "NW2000357", name: "Karthikeya" },
-  { id: "NW0004014", name: "Krishna Prasanna" },
-  { id: "NW0004567", name: "Kagithala Pranathi" },
-  { id: "NW2000636", name: "Pavan Kumar" },
-  { id: "NW0004569", name: "Uday Raju" },
-  { id: "NW0004703", name: "Bommu Chakravarthi" },
-  { id: "NW0007450", name: "Shaik Muskaan" },
-];
+const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+// -------------------------------------------------------------
+// 14-Day Authentication Session Persistence
+// -------------------------------------------------------------
 
 /**
- * Fetch all master employees
+ * Save authentication token & user profile with 14-day expiry
  */
-export function getStoredEmployees() {
+export function saveAuthSession(token, user, expiresAt) {
   try {
-    const raw = localStorage.getItem(EMPLOYEES_KEY);
-    if (!raw) {
-      // Initialize with default employees
-      localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(DEFAULT_EMPLOYEES));
-      return DEFAULT_EMPLOYEES;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_EMPLOYEES;
+    const expiry = expiresAt || Date.now() + FOURTEEN_DAYS_MS;
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    localStorage.setItem(AUTH_EXPIRES_AT_KEY, String(expiry));
   } catch (err) {
-    console.error("Failed to load employees from localStorage", err);
-    return DEFAULT_EMPLOYEES;
+    console.error("Failed to save auth session to localStorage", err);
   }
 }
 
 /**
- * Save master employee list
+ * Retrieve active auth session if within 14-day validity period
  */
-export function saveStoredEmployees(employees) {
+export function getAuthSession() {
   try {
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const userRaw = localStorage.getItem(AUTH_USER_KEY);
+    const expiresAt = Number(localStorage.getItem(AUTH_EXPIRES_AT_KEY));
+
+    if (!token || !userRaw || !expiresAt) {
+      return null;
+    }
+
+    // Check if session has expired (>14 days)
+    if (Date.now() > expiresAt) {
+      console.warn("Session expired after 14 days, clearing session");
+      clearAuthSession();
+      return null;
+    }
+
+    const user = JSON.parse(userRaw);
+    return { token, user, expiresAt };
   } catch (err) {
-    console.error("Failed to save employees to localStorage", err);
+    console.error("Failed to read auth session", err);
+    return null;
+  }
+}
+
+/**
+ * Get active auth token if session is valid
+ */
+export function getAuthToken() {
+  const session = getAuthSession();
+  return session ? session.token : null;
+}
+
+/**
+ * Clear authentication session on logout or expiry
+ */
+export function clearAuthSession() {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(AUTH_EXPIRES_AT_KEY);
+  } catch (err) {
+    console.error("Failed to clear auth session", err);
+  }
+}
+
+// -------------------------------------------------------------
+// Profile-Scoped Fast Browser Storage (Employees & Sessions)
+// -------------------------------------------------------------
+
+function getEmployeesKey(userId) {
+  return userId ? `pp_employees_${userId}` : "pp_employees_guest";
+}
+
+function getSessionsKey(userId) {
+  return userId ? `pp_sessions_${userId}` : "pp_sessions_guest";
+}
+
+function getActiveDateKey(userId) {
+  return userId ? `pp_active_date_${userId}` : "pp_active_date_guest";
+}
+
+/**
+ * Fetch employees for a given user profile.
+ * Notice: For a new user, this returns an EMPTY array [] so the user adds their own employees!
+ */
+export function getStoredEmployees(userId) {
+  try {
+    const key = getEmployeesKey(userId);
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      // Initially empty for a new profile
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Failed to load employees from browser storage", err);
+    return [];
+  }
+}
+
+/**
+ * Save master employee list to fast browser storage
+ */
+export function saveStoredEmployees(userId, employees) {
+  try {
+    const key = getEmployeesKey(userId);
+    localStorage.setItem(key, JSON.stringify(employees));
+  } catch (err) {
+    console.error("Failed to save employees to browser storage", err);
   }
 }
 
 /**
  * Get active session date (format YYYY-MM-DD)
  */
-export function getActiveSessionDate() {
+export function getActiveSessionDate(userId) {
   try {
-    const saved = localStorage.getItem(ACTIVE_SESSION_DATE_KEY);
+    const key = getActiveDateKey(userId);
+    const saved = localStorage.getItem(key);
     if (saved) return saved;
   } catch (err) {
     console.error(err);
@@ -62,9 +138,10 @@ export function getActiveSessionDate() {
 /**
  * Set active session date
  */
-export function setActiveSessionDate(dateStr) {
+export function setActiveSessionDate(userId, dateStr) {
   try {
-    localStorage.setItem(ACTIVE_SESSION_DATE_KEY, dateStr);
+    const key = getActiveDateKey(userId);
+    localStorage.setItem(key, dateStr);
   } catch (err) {
     console.error(err);
   }
@@ -100,11 +177,12 @@ export function formatDisplayDate(dateStr) {
 }
 
 /**
- * Retrieve all sessions overview
+ * Retrieve all sessions overview for active profile
  */
-export function getAllSessions() {
+export function getAllSessions(userId) {
   try {
-    const raw = localStorage.getItem(SESSIONS_KEY);
+    const key = getSessionsKey(userId);
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : {};
   } catch (err) {
     console.error("Failed to read sessions", err);
@@ -115,15 +193,16 @@ export function getAllSessions() {
 /**
  * Save a single session data
  */
-export function saveSession(dateStr, sessionData) {
+export function saveSession(userId, dateStr, sessionData) {
   try {
-    const sessions = getAllSessions();
+    const key = getSessionsKey(userId);
+    const sessions = getAllSessions(userId);
     sessions[dateStr] = {
       ...sessionData,
       date: dateStr,
       updatedAt: new Date().toISOString(),
     };
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(key, JSON.stringify(sessions));
   } catch (err) {
     console.error("Failed to save session", err);
   }
@@ -132,19 +211,20 @@ export function saveSession(dateStr, sessionData) {
 /**
  * Get single session data
  */
-export function getSession(dateStr) {
-  const sessions = getAllSessions();
+export function getSession(userId, dateStr) {
+  const sessions = getAllSessions(userId);
   return sessions[dateStr] || null;
 }
 
 /**
  * Delete a session
  */
-export function deleteSession(dateStr) {
+export function deleteSession(userId, dateStr) {
   try {
-    const sessions = getAllSessions();
+    const key = getSessionsKey(userId);
+    const sessions = getAllSessions(userId);
     delete sessions[dateStr];
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(key, JSON.stringify(sessions));
   } catch (err) {
     console.error("Failed to delete session", err);
   }
