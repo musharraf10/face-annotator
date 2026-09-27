@@ -108,7 +108,7 @@ export function AuthPage({ onLoginSuccess }) {
         >
           <Award className="w-3.5 h-3.5 text-amber-400" />
           <span className="hidden sm:inline">Developer:</span>
-          <span className="font-semibold text-blue-400">Shaik Musharaf (NW0007365)</span>
+          <span className="font-semibold text-blue-400">Shaik Musharaf</span>
         </button>
       </header>
 
@@ -199,7 +199,7 @@ export function AuthPage({ onLoginSuccess }) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. employee@company.com or NW0007365"
+                  placeholder="e.g. employee@company.com or NW0000001"
                   className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                 />
               </div>
