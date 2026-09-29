@@ -18,11 +18,7 @@ app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 app.get("/api/health", (req, res) => {
   res.json({
-    status: "ok",
-    service: "Professional Presence Annotator API",
-    database: "MongoDB",
-    developer: "Shaik Musharaf (NW0007365)",
-    timestamp: new Date().toISOString(),
+    status: "ok"
   });
 });
 
