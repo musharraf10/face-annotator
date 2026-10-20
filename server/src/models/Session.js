@@ -8,6 +8,12 @@ const sessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    branchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch',
+      default: null,
+      index: true,
+    },
     date: {
       type: String, // Format YYYY-MM-DD
       required: true,
@@ -30,6 +36,6 @@ const sessionSchema = new mongoose.Schema(
   }
 );
 
-sessionSchema.index({ userId: 1, date: 1 }, { unique: true });
+sessionSchema.index({ branchId: 1, date: 1 }, { unique: true, partialFilterExpression: { branchId: { $type: 'objectId' } } });
 
 export const Session = mongoose.model('Session', sessionSchema);

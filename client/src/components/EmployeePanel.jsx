@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { EmployeeForm } from './EmployeeForm'
 import { ConfirmationModal } from './ConfirmationModal'
+import { EmployeeReferencePhoto } from './EmployeeReferencePhoto'
 
 
 export function EmployeePanel({
@@ -26,29 +27,38 @@ export function EmployeePanel({
   onAddEmployee,
   onUpdateEmployee,
   onDeleteEmployee,
+  onUploadEmployeePhoto,
+  onDeleteEmployeePhoto,
+  syncStatus = 'synced',
   isCollapsed,
   onToggleCollapse,
 }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState(null)
   const [deletingEmployee, setDeletingEmployee] = useState(null)
+  const [deleteError, setDeleteError] = useState('')
 
   const placedCount = placedEmployeeIds.length
   const totalCount = employees.length
+  const canManageEmployees = syncStatus === 'synced'
 
   const handleOpenAdd = () => {
+    if (!canManageEmployees) return
     setEditingEmployee(null)
     setFormOpen(true)
   }
 
   const handleOpenEdit = (emp, e) => {
+    if (!canManageEmployees) return
     e.stopPropagation()
     setEditingEmployee(emp)
     setFormOpen(true)
   }
 
   const handleOpenDelete = (emp, e) => {
+    if (!canManageEmployees) return
     e.stopPropagation()
+    setDeleteError('')
     setDeletingEmployee(emp)
   }
 
@@ -60,10 +70,11 @@ export function EmployeePanel({
     }
   }
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (deletingEmployee) {
-      onDeleteEmployee(deletingEmployee.id)
-      setDeletingEmployee(null)
+      const result = await onDeleteEmployee(deletingEmployee.id)
+      if (result?.success) setDeletingEmployee(null)
+      else setDeleteError(result?.error || 'Employee could not be deleted. Please retry.')
     }
   }
 
@@ -88,7 +99,8 @@ export function EmployeePanel({
         <button
           onClick={handleOpenAdd}
           title="Add Employee"
-          className="mt-4 p-2 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors"
+          disabled={!canManageEmployees}
+          className="mt-4 p-2 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -113,8 +125,9 @@ export function EmployeePanel({
         <div className="flex items-center gap-1">
           <button
             onClick={handleOpenAdd}
+            disabled={!canManageEmployees}
             title="Add Employee"
-            className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium transition-colors shadow-xs"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="w-3.5 h-3.5" />
             Add
@@ -128,6 +141,16 @@ export function EmployeePanel({
           </button>
         </div>
       </div>
+
+      {syncStatus !== 'synced' && (
+        <div className={`px-3 py-2 text-[11px] border-b ${syncStatus === 'unassigned' ? 'border-amber-500/20 bg-amber-500/10 text-amber-200' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`}>
+          {syncStatus === 'unassigned'
+            ? 'An administrator must assign this account to a branch before employee management is available.'
+            : syncStatus === 'syncing'
+              ? 'Checking the authorized branch roster…'
+              : 'Branch roster is unavailable offline. Cached employees are not shown until the server confirms branch access.'}
+        </div>
+      )}
 
       {/* Search Bar */}
       <div className="p-3 border-b border-slate-800/80 bg-slate-900/50">
@@ -168,7 +191,8 @@ export function EmployeePanel({
                 </p>
                 <button
                   onClick={handleOpenAdd}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all shadow-md shadow-blue-900/30 cursor-pointer"
+                  disabled={!canManageEmployees}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all shadow-md shadow-blue-900/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Add First Employee
@@ -221,6 +245,13 @@ export function EmployeePanel({
                         • {isPlaced ? 'Placed' : 'Not placed'}
                       </span>
                     </div>
+                    <EmployeeReferencePhoto
+                      employeeId={emp.id}
+                      hasPhoto={Boolean(emp.hasReferencePhoto)}
+                      legacyProvider={emp.referencePhotoProvider === 'legacy-s3'}
+                      onUpload={onUploadEmployeePhoto}
+                      onDelete={onDeleteEmployeePhoto}
+                    />
                   </div>
                 </div>
 
@@ -228,15 +259,17 @@ export function EmployeePanel({
                 <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={(e) => handleOpenEdit(emp, e)}
+                    disabled={!canManageEmployees}
                     title="Edit Employee"
-                    className="p-1 rounded text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors"
+                    className="p-1 rounded text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors disabled:opacity-40"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={(e) => handleOpenDelete(emp, e)}
+                    disabled={!canManageEmployees}
                     title="Delete Employee"
-                    className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                    className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors disabled:opacity-40"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -261,7 +294,7 @@ export function EmployeePanel({
       <ConfirmationModal
         isOpen={Boolean(deletingEmployee)}
         title="Delete Employee"
-        message={`Are you sure you want to delete ${deletingEmployee?.name} (${deletingEmployee?.id})? If this employee is placed on the canvas, their tag will also be removed.`}
+        message={`${deleteError ? `${deleteError} ` : ''}Are you sure you want to delete ${deletingEmployee?.name} (${deletingEmployee?.id})? If this employee is placed on the canvas, their tag will also be removed.`}
         confirmText="Delete"
         confirmVariant="danger"
         onConfirm={handleConfirmDelete}

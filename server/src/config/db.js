@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
 export async function connectDB() {
-  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/face_annotator';
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error('MONGODB_URI is required.');
 
   try {
     const conn = await mongoose.connect(uri, {
@@ -10,8 +11,7 @@ export async function connectDB() {
     console.log(`[MongoDB] Connected successfully to: ${conn.connection.host}/${conn.connection.name}`);
     return true;
   } catch (error) {
-    console.warn(`[MongoDB Warning] Could not connect to MongoDB at ${uri}: ${error.message}`);
-    console.warn(`[MongoDB Warning] Application will run in local-browser fallback mode until MongoDB is accessible.`);
-    return false;
+    console.error(`[MongoDB] Connection failed: ${error.message}`);
+    throw error;
   }
 }

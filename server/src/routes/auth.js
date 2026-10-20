@@ -2,22 +2,38 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { Branch } from '../models/Branch.js';
 import { protect } from '../middleware/auth.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_face_annotator_key_2026';
+const authRateLimit = createRateLimiter({ max: 40 });
 // 14 days expiration in seconds: 14 * 24 * 60 * 60 = 1,209,600s
 const TOKEN_EXPIRY = '14d';
 const TOKEN_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 
+async function publicUser(user) {
+  const branch = user.branchId ? await Branch.findOne({ _id: user.branchId, active: true, operationsUserId: user._id }).select('name') : null;
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role || 'unassigned',
+    branchId: branch?._id.toString() || null,
+    branchName: branch?.name || null,
+    createdAt: user.createdAt,
+  };
+}
+
 function generateToken(user) {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required.');
   return jwt.sign(
     {
       id: user._id.toString(),
       email: user.email,
       name: user.name,
     },
-    JWT_SECRET,
+    process.env.JWT_SECRET,
     { expiresIn: TOKEN_EXPIRY }
   );
 }
@@ -26,7 +42,7 @@ function generateToken(user) {
  * @route   POST /api/auth/register
  * @desc    Register a new user profile (employees initially empty)
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authRateLimit, async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
@@ -39,6 +55,10 @@ router.post('/register', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
+
+    if (cleanEmail === process.env.ADMIN_BOOTSTRAP_EMAIL?.trim().toLowerCase()) {
+      return res.status(403).json({ success: false, error: 'This account is reserved for controlled administrator provisioning.' });
+    }
 
     const existingUser = await User.findOne({ email: cleanEmail });
     if (existingUser) {
@@ -64,12 +84,7 @@ router.post('/register', async (req, res) => {
       success: true,
       token,
       expiresAt,
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        createdAt: user.createdAt,
-      },
+      user: await publicUser(user),
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -84,7 +99,7 @@ router.post('/register', async (req, res) => {
  * @route   POST /api/auth/login
  * @desc    Login user, returns 14-day token
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -119,12 +134,7 @@ router.post('/login', async (req, res) => {
       success: true,
       token,
       expiresAt,
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        createdAt: user.createdAt,
-      },
+      user: await publicUser(user),
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -151,12 +161,7 @@ router.get('/me', protect, async (req, res) => {
 
     res.json({
       success: true,
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        createdAt: user.createdAt,
-      },
+      user: await publicUser(user),
     });
   } catch (error) {
     res.status(500).json({

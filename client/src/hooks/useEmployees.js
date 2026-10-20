@@ -1,222 +1,100 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { getStoredEmployees, saveStoredEmployees } from '../utils/storage';
-import {
-  apiGetEmployees,
-  apiAddEmployee,
-  apiUpdateEmployee,
-  apiDeleteEmployee,
-  apiSyncEmployees,
-} from '../utils/api';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { apiGetEmployees, apiAddEmployee, apiUpdateEmployee, apiDeleteEmployee, apiUploadEmployeePhoto, apiDeleteEmployeePhoto } from '../utils/api';
 
 export function useEmployees(user) {
   const userId = user?.id || null;
-
-  // Immediately initialize state from fast browser storage (0ms UI lag)
-  const [employees, setEmployees] = useState(() => getStoredEmployees(userId));
+  // Never render a cached roster until the server confirms this account's branch.
+  const [roster, setRoster] = useState({ userId: null, employees: [], status: 'syncing' });
   const [searchQuery, setSearchQuery] = useState('');
-  const [syncStatus, setSyncStatus] = useState('synced'); // 'synced' | 'syncing' | 'offline'
-  const isInitialMount = useRef(true);
+  const employees = useMemo(() => roster.userId === userId ? roster.employees : [], [roster, userId]);
+  const syncStatus = roster.userId === userId ? roster.status : 'syncing';
 
-  // When user changes (e.g. login/switch profile), reload from browser storage
   useEffect(() => {
-    const local = getStoredEmployees(userId);
-    setEmployees(local);
-  }, [userId]);
-
-  // Synchronize state back into fast browser storage whenever employees change
-  useEffect(() => {
-    saveStoredEmployees(userId, employees);
-  }, [userId, employees]);
-
-  // Fetch from MongoDB backend on mount/login and synchronize with local storage
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function syncWithBackend() {
-      if (!userId) return;
-
-      try {
-        setSyncStatus('syncing');
-        const res = await apiGetEmployees();
-
-        if (isCancelled) return;
-
-        if (res.success && Array.isArray(res.employees)) {
-          const serverList = res.employees;
-          const localList = getStoredEmployees(userId);
-
-          // If server has data, make it authoritative and update local
-          if (serverList.length > 0) {
-            setEmployees(serverList);
-            saveStoredEmployees(userId, serverList);
-          } else if (localList.length > 0) {
-            // If local has items but server is empty, sync local items up to MongoDB
-            try {
-              await apiSyncEmployees(localList);
-            } catch (err) {
-              console.warn('Sync to MongoDB pending:', err);
-            }
-          }
-          setSyncStatus('synced');
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          // If server is offline, continue using fast local browser storage
-          setSyncStatus('offline');
-        }
-      }
-    }
-
-    syncWithBackend();
-
-    return () => {
-      isCancelled = true;
-    };
+    let cancelled = false;
+    apiGetEmployees().then((res) => {
+      if (cancelled) return;
+      const list = Array.isArray(res.employees) ? res.employees : [];
+      setRoster({ userId, employees: list, status: 'synced' });
+    }).catch((error) => {
+      if (cancelled) return;
+      setRoster({ userId, employees: [], status: error.status === 403 ? 'unassigned' : 'offline' });
+    });
+    return () => { cancelled = true; };
   }, [userId]);
 
   const filteredEmployees = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return employees;
-    return employees.filter(
-      (emp) =>
-        emp.name.toLowerCase().includes(q) ||
-        emp.id.toLowerCase().includes(q)
-    );
+    return employees.filter((emp) => emp.name.toLowerCase().includes(q) || emp.id.toLowerCase().includes(q));
   }, [employees, searchQuery]);
 
-  /**
-   * Add a new employee
-   * Instant local update + asynchronous MongoDB sync
-   */
-  const addEmployee = useCallback(
-    async ({ id, name }) => {
-      const trimmedId = id.trim().toUpperCase();
-      const trimmedName = name.trim();
+  const addEmployee = useCallback(async ({ id, name }) => {
+    const cleanId = id.trim().toUpperCase();
+    const cleanName = name.trim();
+    if (!cleanId || !cleanName) return { success: false, error: 'Employee ID and name are required.' };
+    if (employees.some((employee) => employee.id.toLowerCase() === cleanId.toLowerCase())) {
+      return { success: false, error: `Employee ID "${cleanId}" already exists.` };
+    }
+    try {
+      const res = await apiAddEmployee({ id: cleanId, name: cleanName });
+      const next = [...employees, res.employee];
+      setRoster({ userId, employees: next, status: 'synced' });
+      return { success: true, employee: res.employee };
+    } catch (error) {
+      if (error.status === 403) setRoster({ userId, employees: [], status: 'unassigned' });
+      return { success: false, error: error.message };
+    }
+  }, [employees, userId]);
 
-      if (!trimmedName) {
-        return { success: false, error: 'Employee name is required.' };
-      }
-      if (!trimmedId) {
-        return { success: false, error: 'Employee ID is required.' };
-      }
-
-      const exists = employees.some(
-        (e) => e.id.toLowerCase() === trimmedId.toLowerCase()
-      );
-      if (exists) {
-        return {
-          success: false,
-          error: `Employee ID "${trimmedId}" already exists.`,
-        };
-      }
-
-      const newEmp = { id: trimmedId, name: trimmedName };
-
-      // 1. Instant local update for fast responsiveness
-      setEmployees((prev) => [...prev, newEmp]);
-
-      // 2. Async background sync to MongoDB
-      if (userId) {
-        try {
-          await apiAddEmployee(newEmp);
-          setSyncStatus('synced');
-        } catch (err) {
-          console.warn('MongoDB sync deferred (saved locally):', err);
-          setSyncStatus('offline');
-        }
-      }
-
-      return { success: true, employee: newEmp };
-    },
-    [employees, userId]
-  );
-
-  /**
-   * Update an existing employee
-   * Instant local update + asynchronous MongoDB sync
-   */
-  const updateEmployee = useCallback(
-    async (oldId, { id, name }) => {
-      const trimmedId = id.trim().toUpperCase();
-      const trimmedName = name.trim();
-
-      if (!trimmedName) {
-        return { success: false, error: 'Employee name is required.' };
-      }
-      if (!trimmedId) {
-        return { success: false, error: 'Employee ID is required.' };
-      }
-
-      if (trimmedId.toLowerCase() !== oldId.toLowerCase()) {
-        const exists = employees.some(
-          (e) =>
-            e.id.toLowerCase() === trimmedId.toLowerCase() &&
-            e.id.toLowerCase() !== oldId.toLowerCase()
-        );
-        if (exists) {
-          return {
-            success: false,
-            error: `Employee ID "${trimmedId}" is already in use.`,
-          };
-        }
-      }
-
-      const updated = { id: trimmedId, name: trimmedName };
-
-      // 1. Instant local update
-      setEmployees((prev) =>
-        prev.map((e) => (e.id === oldId ? updated : e))
-      );
-
-      // 2. Async background sync to MongoDB
-      if (userId) {
-        try {
-          await apiUpdateEmployee(oldId, updated);
-          setSyncStatus('synced');
-        } catch (err) {
-          console.warn('MongoDB sync deferred (saved locally):', err);
-          setSyncStatus('offline');
-        }
-      }
-
+  const updateEmployee = useCallback(async (oldId, { id, name }) => {
+    const cleanId = id.trim().toUpperCase();
+    const cleanName = name.trim();
+    if (!cleanId || !cleanName) return { success: false, error: 'Employee ID and name are required.' };
+    if (employees.some((employee) => employee.id.toLowerCase() === cleanId.toLowerCase() && employee.id.toLowerCase() !== oldId.toLowerCase())) {
+      return { success: false, error: `Employee ID "${cleanId}" is already in use.` };
+    }
+    try {
+      const res = await apiUpdateEmployee(oldId, { id: cleanId, name: cleanName });
+      const next = employees.map((employee) => employee.id === oldId ? res.employee : employee);
+      setRoster({ userId, employees: next, status: 'synced' });
       return { success: true };
-    },
-    [employees, userId]
-  );
+    } catch (error) {
+      if (error.status === 403) setRoster({ userId, employees: [], status: 'unassigned' });
+      return { success: false, error: error.message };
+    }
+  }, [employees, userId]);
 
-  /**
-   * Delete an employee
-   * Instant local update + asynchronous MongoDB sync
-   */
-  const deleteEmployee = useCallback(
-    async (id) => {
-      const targetId = id.trim().toUpperCase();
+  const deleteEmployee = useCallback(async (id) => {
+    try {
+      await apiDeleteEmployee(id);
+      const next = employees.filter((employee) => employee.id !== id.trim().toUpperCase());
+      setRoster({ userId, employees: next, status: 'synced' });
+      return { success: true };
+    } catch (error) {
+      if (error.status === 403) setRoster({ userId, employees: [], status: 'unassigned' });
+      return { success: false, error: error.message };
+    }
+  }, [employees, userId]);
 
-      // 1. Instant local update
-      setEmployees((prev) => prev.filter((e) => e.id !== targetId));
+  const uploadEmployeePhoto = useCallback(async (id, file) => {
+    try {
+      const result = await apiUploadEmployeePhoto(id, file);
+      setRoster((current) => ({ ...current, employees: current.employees.map((employee) => employee.id === id ? { ...employee, hasReferencePhoto: true } : employee) }));
+      return { success: true, cleanupPending: result.cleanupPending };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }, []);
 
-      // 2. Async background sync to MongoDB
-      if (userId) {
-        try {
-          await apiDeleteEmployee(targetId);
-          setSyncStatus('synced');
-        } catch (err) {
-          console.warn('MongoDB sync deferred (saved locally):', err);
-          setSyncStatus('offline');
-        }
-      }
-    },
-    [userId]
-  );
+  const deleteEmployeePhoto = useCallback(async (id) => {
+    try {
+      const result = await apiDeleteEmployeePhoto(id);
+      setRoster((current) => ({ ...current, employees: current.employees.map((employee) => employee.id === id ? { ...employee, hasReferencePhoto: false } : employee) }));
+      return { success: true, cleanupPending: result.cleanupPending };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }, []);
 
-  return {
-    employees,
-    filteredEmployees,
-    searchQuery,
-    setSearchQuery,
-    addEmployee,
-    updateEmployee,
-    deleteEmployee,
-    syncStatus,
-  };
+  return { employees, filteredEmployees, searchQuery, setSearchQuery, addEmployee, updateEmployee, deleteEmployee, uploadEmployeePhoto, deleteEmployeePhoto, syncStatus };
 }

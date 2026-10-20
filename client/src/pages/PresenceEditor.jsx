@@ -34,6 +34,7 @@ import { exportCanvasAsPNG, generatePreviewDataUrl } from '../utils/exportImage'
 
 export function PresenceEditor({ user, onLogout }) {
   const userId = user?.id || null;
+  const storageScope = user?.branchId || null;
 
   const {
     employees,
@@ -43,6 +44,8 @@ export function PresenceEditor({ user, onLogout }) {
     addEmployee,
     updateEmployee,
     deleteEmployee,
+    uploadEmployeePhoto,
+    deleteEmployeePhoto,
     syncStatus,
   } = useEmployees(user)
 
@@ -50,8 +53,8 @@ export function PresenceEditor({ user, onLogout }) {
   const fileInputRef = useRef(null)
 
   // Session State
-  const [sessionDate, setSessionDate] = useState(() => getActiveSessionDate(userId))
-  const [sessionsList, setSessionsList] = useState(() => getAllSessions(userId))
+  const [sessionDate, setSessionDate] = useState(() => storageScope ? getActiveSessionDate(storageScope) : getTodayDateString())
+  const [sessionsList, setSessionsList] = useState(() => storageScope ? getAllSessions(storageScope) : {})
   const [showSessionsDropdown, setShowSessionsDropdown] = useState(false)
   const [creditsOpen, setCreditsOpen] = useState(false)
 
@@ -83,24 +86,26 @@ export function PresenceEditor({ user, onLogout }) {
 
   // Synchronize past sessions from backend if available
   useEffect(() => {
-    if (!userId) return
+    if (!userId || !storageScope || syncStatus !== 'synced') return
     apiGetSessions()
       .then((res) => {
         if (res.success && res.sessions) {
-          setSessionsList((prev) => ({ ...prev, ...res.sessions }))
+          Object.entries(res.sessions).forEach(([date, session]) => saveSession(storageScope, date, session))
+          setSessionsList(getAllSessions(storageScope))
         }
       })
       .catch(() => {})
-  }, [userId])
+  }, [userId, storageScope, syncStatus])
 
   // Load session from storage / IndexedDB on mount or sessionDate change
   useEffect(() => {
+    if (syncStatus !== 'synced' || !storageScope) return undefined
     let isMounted = true
     isSessionLoadedRef.current = false
 
     async function loadCurrentSession() {
-      const saved = getSession(userId, sessionDate)
-      const cachedImg = await getImageFromIndexedDB(`img_${userId || 'guest'}_${sessionDate}`)
+      const saved = getSession(storageScope, sessionDate)
+      const cachedImg = await getImageFromIndexedDB(`img_${storageScope}_${sessionDate}`)
 
       if (!isMounted) return
 
@@ -132,16 +137,16 @@ export function PresenceEditor({ user, onLogout }) {
     }
 
     loadCurrentSession()
-    setActiveSessionDate(userId, sessionDate)
+    setActiveSessionDate(storageScope, sessionDate)
 
     return () => {
       isMounted = false
     }
-  }, [sessionDate, userId])
+  }, [sessionDate, storageScope, syncStatus])
 
   // Save current work to session (Fast browser storage + MongoDB background sync)
   const saveCurrentSessionWork = useCallback(() => {
-    if (!isSessionLoadedRef.current || !canvasRef.current) return
+    if (syncStatus !== 'synced' || !isSessionLoadedRef.current || !canvasRef.current) return
     setSaveStatus('saving')
 
     const snapshot = canvasRef.current.getSnapshot()
@@ -158,8 +163,8 @@ export function PresenceEditor({ user, onLogout }) {
       },
     }
 
-    saveSession(userId, sessionDate, sessionData)
-    setSessionsList(getAllSessions(userId))
+    saveSession(storageScope, sessionDate, sessionData)
+    setSessionsList(getAllSessions(storageScope))
 
     // Background MongoDB sync
     if (userId) {
@@ -169,7 +174,7 @@ export function PresenceEditor({ user, onLogout }) {
     setTimeout(() => {
       setSaveStatus('saved')
     }, 400)
-  }, [userId, sessionDate, imageFileName, imageDataUrl])
+  }, [userId, storageScope, sessionDate, imageFileName, imageDataUrl, syncStatus])
 
   // Record history snapshot for Undo / Redo
   const recordHistory = useCallback(() => {
@@ -250,7 +255,7 @@ export function PresenceEditor({ user, onLogout }) {
   const handleUploadImage = async (dataUrl, fileName) => {
     setImageDataUrl(dataUrl)
     setImageFileName(fileName)
-    await saveImageToIndexedDB(`img_${userId || 'guest'}_${sessionDate}`, dataUrl)
+    await saveImageToIndexedDB(`img_${storageScope}_${sessionDate}`, dataUrl)
     showToast('Group photo loaded successfully!', 'success')
 
     const snapshot = canvasRef.current?.getSnapshot() || []
@@ -264,8 +269,8 @@ export function PresenceEditor({ user, onLogout }) {
         hasImage: true,
       },
     }
-    saveSession(userId, sessionDate, sessionData)
-    setSessionsList(getAllSessions(userId))
+    saveSession(storageScope, sessionDate, sessionData)
+    setSessionsList(getAllSessions(storageScope))
     if (userId) {
       apiSaveSession(sessionDate, sessionData).catch(() => {})
     }
@@ -306,12 +311,14 @@ export function PresenceEditor({ user, onLogout }) {
   }
 
   const handleDeleteEmployee = async (id) => {
-    await deleteEmployee(id)
+    const res = await deleteEmployee(id)
+    if (!res.success) return res
     if (canvasRef.current) {
       canvasRef.current.removeEmployeeTag(id)
       recordHistory()
     }
     showToast('Employee deleted from master list.', 'info')
+    return res
   }
 
   // Clear all annotations from canvas
@@ -342,7 +349,7 @@ export function PresenceEditor({ user, onLogout }) {
   const handleStartNewSession = () => {
     const today = getTodayDateString()
     setSessionDate(today)
-    setActiveSessionDate(userId, today)
+    setActiveSessionDate(storageScope, today)
     setImageDataUrl(null)
     setImageFileName(null)
     setPlacedEmployeeIds([])
@@ -359,7 +366,7 @@ export function PresenceEditor({ user, onLogout }) {
   // Switch to a past session
   const handleSwitchSession = (dateStr) => {
     setSessionDate(dateStr)
-    setActiveSessionDate(userId, dateStr)
+    setActiveSessionDate(storageScope, dateStr)
     setShowSessionsDropdown(false)
     showToast(`Loaded session: ${formatDisplayDate(dateStr)}`, 'info')
   }
@@ -392,6 +399,23 @@ export function PresenceEditor({ user, onLogout }) {
   const sessionEntries = Object.values(sessionsList).sort(
     (a, b) => new Date(b.date || 0) - new Date(a.date || 0)
   )
+
+  if (syncStatus !== 'synced') {
+    const message = syncStatus === 'unassigned'
+      ? 'An administrator must assign this Operations Employee account to an active branch before the portal can load employee or session data.'
+      : syncStatus === 'syncing'
+        ? 'Verifying branch access…'
+        : 'The server could not verify branch access. Reconnect to continue; branch data is hidden while offline.'
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-slate-100">
+        <div className="max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl">
+          <h1 className="text-sm font-semibold text-white">Presence Check Portal</h1>
+          <p className="mt-3 text-xs leading-5 text-slate-300">{message}</p>
+          <button onClick={onLogout} className="mt-5 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800">Sign out</button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full w-full bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
@@ -563,6 +587,9 @@ export function PresenceEditor({ user, onLogout }) {
           onAddEmployee={handleAddEmployee}
           onUpdateEmployee={handleUpdateEmployee}
           onDeleteEmployee={handleDeleteEmployee}
+          onUploadEmployeePhoto={uploadEmployeePhoto}
+          onDeleteEmployeePhoto={deleteEmployeePhoto}
+          syncStatus={syncStatus}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
         />

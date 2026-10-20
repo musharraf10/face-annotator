@@ -6,11 +6,9 @@ import {
   Lock,
   Mail,
   User,
-  CheckCircle2,
   Clock,
   Award,
   AlertCircle,
-  Database,
   ArrowRight,
 } from 'lucide-react';
 import { apiLogin, apiRegister } from '../utils/api';
@@ -59,21 +57,11 @@ export function AuthPage({ onLoginSuccess }) {
         setError('Authentication succeeded, but invalid response received.');
       }
     } catch (err) {
-      // If server or MongoDB is offline, provide graceful offline fallback login
       if (err.isOffline) {
-        console.warn('Backend server offline. Activating fast local profile session.');
-        const fallbackUser = {
-          id: `local_${btoa(email).replace(/[^a-zA-Z0-9]/g, '').slice(0, 10)}`,
-          name: name.trim() || email.split('@')[0],
-          email: email.trim().toLowerCase(),
-        };
-        const localExpiry = Date.now() + 14 * 24 * 60 * 60 * 1000;
-        saveAuthSession(`local_token_${Date.now()}`, fallbackUser, localExpiry);
-        onLoginSuccess(fallbackUser);
-        return;
+        setError('The portal server is unavailable. Branch access cannot be verified while offline.');
+      } else {
+        setError(err.message || 'Authentication failed. Please check your credentials.');
       }
-
-      setError(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -123,7 +111,7 @@ export function AuthPage({ onLoginSuccess }) {
             <p className="text-xs text-slate-400 mt-1.5">
               {mode === 'login'
                 ? 'Access your personalized employee roster and annotation sessions'
-                : 'Your profile starts with an empty employee roster ready for your team'}
+                : 'New profiles need administrator branch assignment before employee management is enabled'}
             </p>
           </div>
 

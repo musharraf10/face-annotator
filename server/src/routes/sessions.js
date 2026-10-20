@@ -1,10 +1,10 @@
 import express from 'express';
 import { Session } from '../models/Session.js';
-import { protect } from '../middleware/auth.js';
+import { protect, requireOperationsAccount } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.use(protect);
+router.use(protect, requireOperationsAccount);
 
 /**
  * @route   GET /api/sessions
@@ -12,7 +12,7 @@ router.use(protect);
  */
 router.get('/', async (req, res) => {
   try {
-    const sessions = await Session.find({ userId: req.user.id }).sort({ date: -1 });
+    const sessions = await Session.find({ branchId: req.branchId }).sort({ date: -1 });
     const sessionMap = {};
     sessions.forEach((s) => {
       sessionMap[s.date] = {
@@ -40,8 +40,10 @@ router.post('/:date', async (req, res) => {
     const { placedEmployees, annotations, imageMeta } = req.body;
 
     const session = await Session.findOneAndUpdate(
-      { userId: req.user.id, date },
+      { branchId: req.branchId, date },
       {
+        userId: req.account._id,
+        branchId: req.branchId,
         placedEmployees: placedEmployees || [],
         annotations: annotations || [],
         imageMeta: imageMeta || { name: 'group-photo.jpg', hasImage: false },

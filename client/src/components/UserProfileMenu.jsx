@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  User,
   LogOut,
   ChevronDown,
-  ShieldCheck,
   Database,
   Award,
   Clock,
@@ -38,7 +36,8 @@ export function UserProfileMenu({ user, onLogout, syncStatus = 'synced' }) {
   const dbStatusLabel = {
     synced: { text: 'MongoDB Synced', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
     syncing: { text: 'Syncing to DB...', color: 'text-sky-400 bg-sky-500/10 border-sky-500/30' },
-    offline: { text: 'Local DB Storage', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+    offline: { text: 'Branch Access Offline', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+    unassigned: { text: 'Branch Assignment Needed', color: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
   }[syncStatus] || { text: 'DB Ready', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
 
   return (

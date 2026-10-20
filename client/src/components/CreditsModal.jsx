@@ -1,4 +1,4 @@
-import { X, Award, Code, Heart, Sparkles, CheckCircle2 } from 'lucide-react';
+import { X, Award, Heart, Sparkles, CheckCircle2 } from 'lucide-react';
 
 export function CreditsModal({ isOpen, onClose }) {
   if (!isOpen) return null;
